@@ -246,6 +246,20 @@ func TestDynamicLinkResolutionAndHome(t *testing.T) {
 		t.Error("popular live Service unexpectedly links to a stored-link detail page")
 	}
 
+	r = httptest.NewRequest(http.MethodGet, "/.all", nil)
+	w = httptest.NewRecorder()
+	serveHandler().ServeHTTP(w, r)
+	body = w.Body.String()
+	for _, want := range []string{"Links (0)", "Services (1)", "Devices (3)", "Clicks"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("all page missing %q", want)
+		}
+	}
+	serviceResults := discoveredSearchResults([]discoveredLink{{Short: "app", Kind: "Service"}}, map[string]int{linkID("app"): clicksAfter})
+	if len(serviceResults) != 1 || serviceResults[0].NumClicks != clicksAfter {
+		t.Errorf("discovered result click count = %+v; want %d", serviceResults, clicksAfter)
+	}
+
 	if err := db.Save(&Link{Short: "app", Long: "https://manual.example/"}); err != nil {
 		t.Fatal(err)
 	}

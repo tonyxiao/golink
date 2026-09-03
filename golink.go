@@ -357,20 +357,51 @@ type searchResult struct {
 	Online      bool
 }
 
+type searchGroup struct {
+	Name    string
+	Results []searchResult
+}
+
+type searchPageData struct {
+	Results    []searchResult
+	Groups     []searchGroup
+	ShowExport bool
+}
+
+func currentClickCounts() map[string]int {
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	counts := make(map[string]int, len(stats.clicks))
+	for short, count := range stats.clicks {
+		counts[linkID(short)] += count
+	}
+	return counts
+}
+
 // searchResults annotates links with their current click counts (read from the
 // live in-memory counter, the same source the home page uses), preserving the
 // historical alphabetical ordering by short name.
 func searchResults(links []*Link) []searchResult {
-	stats.mu.Lock()
+	counts := currentClickCounts()
 	results := make([]searchResult, len(links))
 	for i, link := range links {
-		results[i] = searchResult{Link: link, NumClicks: stats.clicks[link.Short]}
+		results[i] = searchResult{Link: link, NumClicks: counts[linkID(link.Short)]}
 	}
-	stats.mu.Unlock()
 
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Short < results[j].Short
 	})
+	return results
+}
+
+func discoveredSearchResults(links []discoveredLink, counts map[string]int) []searchResult {
+	results := make([]searchResult, len(links))
+	for i, link := range links {
+		results[i] = searchResult{
+			Link: &Link{Short: link.Short, Long: link.Long}, NumClicks: counts[linkID(link.Short)],
+			Discovered: true, Kind: link.Kind, Description: link.Description, IPs: link.IPs, Online: link.Online,
+		}
+	}
 	return results
 }
 
@@ -683,19 +714,18 @@ func serveAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results := searchResults(links)
+	data := searchPageData{ShowExport: true}
 	if discovered, err := liveTailscaleLinks(r.Context(), links); err == nil {
-		for _, group := range [][]discoveredLink{discovered.Services, discovered.Devices} {
-			for _, link := range group {
-				results = append(results, searchResult{
-					Link: &Link{Short: link.Short, Long: link.Long}, Discovered: true,
-					Kind: link.Kind, Description: link.Description, IPs: link.IPs, Online: link.Online,
-				})
-			}
+		counts := currentClickCounts()
+		data.Groups = []searchGroup{
+			{Name: "Links", Results: searchResults(links)},
+			{Name: "Services", Results: discoveredSearchResults(discovered.Services, counts)},
+			{Name: "Devices", Results: discoveredSearchResults(discovered.Devices, counts)},
 		}
-		sort.Slice(results, func(i, j int) bool { return results[i].Short < results[j].Short })
+	} else {
+		data.Results = searchResults(links)
 	}
-	searchTmpl.Execute(w, results)
+	searchTmpl.Execute(w, data)
 }
 
 func serveHelp(w http.ResponseWriter, _ *http.Request) {
@@ -883,7 +913,7 @@ func serveSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	searchTmpl.Execute(w, searchResults(links))
+	searchTmpl.Execute(w, searchPageData{Results: searchResults(links), ShowExport: true})
 }
 
 type expandEnv struct {

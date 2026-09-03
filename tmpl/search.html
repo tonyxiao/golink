@@ -1,5 +1,19 @@
 {{ define "main" }}
-    <h2 class="text-xl font-bold pt-6 pb-2">Results ({{ len . }} total)</h2>
+    {{if .Groups}}
+      {{range .Groups}}
+        <h2 class="text-xl font-bold pt-6 pb-2">{{.Name}} ({{len .Results}})</h2>
+        {{template "resultTable" .Results}}
+      {{end}}
+    {{else}}
+      <h2 class="text-xl font-bold pt-6 pb-2">Results ({{len .Results}} total)</h2>
+      {{template "resultTable" .Results}}
+    {{end}}
+    {{if .ShowExport}}
+      <p class="text-sm text-end text-gray-500 py-2"><a class="hover:underline hover:text-blue-500" href="/.export">Download stored links in JSON Lines format.</a></p>
+    {{end}}
+{{ end }}
+
+{{define "resultTable"}}
     <table class="table-auto w-full max-w-screen-lg">
       <thead class="border-b border-gray-200 uppercase text-xs text-gray-500 text-left">
         <tr class="flex">
@@ -10,35 +24,31 @@
         </tr>
       </thead>
       <tbody>
-      {{ range . }}
+      {{range .}}
         <tr class="flex hover:bg-gray-100 group border-b border-gray-200">
           <td class="flex-1 p-2">
             <div class="flex">
-              <a class="flex-1 hover:text-blue-500 hover:underline" href="/{{ .Short }}">{{go}}/{{ .Short }}</a>
-              {{if not .Discovered}}<a class="flex items-center px-2 invisible group-hover:visible" title="Link Details" href="/.detail/{{ .Short }}">
+              <a class="flex-1 hover:text-blue-500 hover:underline" href="/{{.Short}}">{{go}}/{{.Short}}</a>
+              {{if not .Discovered}}<a class="flex items-center px-2 invisible group-hover:visible" title="Link Details" href="/.detail/{{.Short}}">
                 <svg class="hover:fill-blue-500" xmlns="http://www.w3.org/2000/svg" height="1.3em" viewBox="0 0 24 24" width="1.3em" fill="#000000" stroke-width="2"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8z"/></svg>
               </a>{{end}}
             </div>
-            <p class="text-sm leading-normal text-gray-500 group-hover:text-gray-700 max-w-[75vw] md:max-w-[40vw] truncate">{{ .Long }}</p>
+            <p class="text-sm leading-normal text-gray-500 group-hover:text-gray-700 max-w-[75vw] md:max-w-[40vw] truncate">{{.Long}}</p>
             {{if .Discovered}}
               {{with .Description}}<p class="text-sm text-gray-500">{{.}}</p>{{end}}
               <p class="text-xs text-gray-500">{{range .IPs}}{{.}} {{end}}</p>
+              <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Source</span> {{.Kind}}</p>
             {{else}}
-              <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Owner</span> {{ .Owner }}</p>
-              <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Last Edited</span> {{ .LastEdit.Format "Jan 2, 2006" }}</p>
-              <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Clicks</span> {{ .NumClicks }}</p>
+              <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Owner</span> {{.Owner}}</p>
+              <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Last Edited</span> {{.LastEdit.Format "Jan 2, 2006"}}</p>
             {{end}}
+            <p class="md:hidden text-sm leading-normal text-gray-700"><span class="text-gray-500 inline-block w-20">Clicks</span> {{.NumClicks}}</p>
           </td>
           <td class="hidden md:block w-60 truncate p-2">{{if .Discovered}}{{.Kind}}{{else}}{{.Owner}}{{end}}</td>
-          <td class="hidden md:block w-32 p-2">{{if not .Discovered}}{{ .LastEdit.Format "Jan 2, 2006" }}{{end}}</td>
-          <td class="hidden md:block w-20 p-2">{{if not .Discovered}}{{ .NumClicks }}{{end}}</td>
+          <td class="hidden md:block w-32 p-2">{{if not .Discovered}}{{.LastEdit.Format "Jan 2, 2006"}}{{end}}</td>
+          <td class="hidden md:block w-20 p-2">{{.NumClicks}}</td>
         </tr>
-      {{ end }}
+      {{end}}
       </tbody>
-      <tfoot>
-        <tr>
-          <td class="text-sm text-end text-gray-500 py-2"><a class="hover:underline hover:text-blue-500" href="/.export">Download stored links in JSON Lines format.</a></td>
-        </tr>
-      </tfoot>
     </table>
-{{ end }}
+{{end}}
