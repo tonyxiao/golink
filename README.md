@@ -35,8 +35,8 @@ storing links in a temporary database, and will not attempt to join a tailnet.
 golink lists the devices visible in `tailscale status` and the Services visible
 in `tailscale service list` directly from the Tailscale LocalAPI. These entries
 are resolved live and are never copied into the golink database. Visits use the
-same usage counters as stored golinks, so discovered entries can appear under
-Popular Links; only their aggregate click counts are persisted.
+same usage counters as stored golinks, and each home-page category is ordered
+by popularity; only aggregate click counts are persisted.
 
 The LocalAPI does not expose the Service comments shown as “Description” in the
 Tailscale admin console. To include those descriptions, provide a Tailscale API

@@ -340,9 +340,8 @@ var (
 )
 
 type visitData struct {
-	Short      string
-	NumClicks  int
-	Discovered bool
+	Short     string
+	NumClicks int
 }
 
 // searchResult is a link paired with its current click count, used to render
@@ -409,7 +408,7 @@ func discoveredSearchResults(links []discoveredLink, counts map[string]int) []se
 type homeData struct {
 	Short          string
 	Long           string
-	Clicks         []visitData
+	Links          []visitData
 	Services       []discoveredLink
 	Devices        []discoveredLink
 	DiscoveryError bool
@@ -629,7 +628,7 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		return
 	}
 	discovered, discoveryErr := liveTailscaleLinks(r.Context(), stored)
-	clicks := popularLinks(stored, discovered)
+	links := annotateHomeUsage(stored, &discovered)
 
 	cu, err := currentUser(r)
 	if err != nil {
@@ -638,7 +637,7 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	}
 	homeTmpl.Execute(w, homeData{
 		Short:          short,
-		Clicks:         clicks,
+		Links:          links,
 		Services:       discovered.Services,
 		Devices:        discovered.Devices,
 		DiscoveryError: discoveryErr != nil,
@@ -648,10 +647,9 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 	})
 }
 
-func popularLinks(stored []*Link, discovered discoveredLinks) []visitData {
+func annotateHomeUsage(stored []*Link, discovered *discoveredLinks) []visitData {
 	type knownLink struct {
-		short      string
-		discovered bool
+		short string
 	}
 	known := make(map[string]knownLink, len(stored)+len(discovered.Services)+len(discovered.Devices))
 	for _, link := range stored {
@@ -661,7 +659,7 @@ func popularLinks(stored []*Link, discovered discoveredLinks) []visitData {
 		for _, link := range group {
 			id := linkID(link.Short)
 			if _, exists := known[id]; !exists {
-				known[id] = knownLink{short: link.Short, discovered: true}
+				known[id] = knownLink{short: link.Short}
 			}
 		}
 	}
@@ -680,26 +678,35 @@ func popularLinks(stored []*Link, discovered discoveredLinks) []visitData {
 	}
 	stats.clicks = canonicalize(stats.clicks)
 	stats.dirty = canonicalize(stats.dirty)
-	clicks := make([]visitData, 0, len(stats.clicks))
+	counts := make(map[string]int, len(stats.clicks))
 	for short, numClicks := range stats.clicks {
-		link, ok := known[linkID(short)]
-		if !ok {
-			continue
-		}
-		clicks = append(clicks, visitData{Short: link.short, NumClicks: numClicks, Discovered: link.discovered})
+		counts[linkID(short)] += numClicks
 	}
 	stats.mu.Unlock()
 
-	sort.Slice(clicks, func(i, j int) bool {
-		if clicks[i].NumClicks != clicks[j].NumClicks {
-			return clicks[i].NumClicks > clicks[j].NumClicks
-		}
-		return clicks[i].Short < clicks[j].Short
-	})
-	if len(clicks) > 200 {
-		clicks = clicks[:200]
+	links := make([]visitData, len(stored))
+	for i, link := range stored {
+		links[i] = visitData{Short: link.Short, NumClicks: counts[linkID(link.Short)]}
 	}
-	return clicks
+	lessUsage := func(a, b discoveredLink) bool {
+		if a.NumClicks != b.NumClicks {
+			return a.NumClicks > b.NumClicks
+		}
+		return a.Short < b.Short
+	}
+	for _, group := range [][]discoveredLink{discovered.Services, discovered.Devices} {
+		for i := range group {
+			group[i].NumClicks = counts[linkID(group[i].Short)]
+		}
+		sort.Slice(group, func(i, j int) bool { return lessUsage(group[i], group[j]) })
+	}
+	sort.Slice(links, func(i, j int) bool {
+		if links[i].NumClicks != links[j].NumClicks {
+			return links[i].NumClicks > links[j].NumClicks
+		}
+		return links[i].Short < links[j].Short
+	})
+	return links
 }
 
 func serveAll(w http.ResponseWriter, r *http.Request) {

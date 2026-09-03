@@ -234,16 +234,19 @@ func TestDynamicLinkResolutionAndHome(t *testing.T) {
 	w = httptest.NewRecorder()
 	serveHandler().ServeHTTP(w, r)
 	body := w.Body.String()
-	for _, want := range []string{"Services (1)", "Devices (3)", "The application", "100.100.0.1", "offline"} {
+	for _, want := range []string{"Links (0)", "Services (1)", "Devices (3)", "The application", "100.100.0.1", "offline"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("home page missing %q", want)
 		}
+	}
+	if got := strings.Count(body, ">Clicks</th>"); got != 3 {
+		t.Errorf("home page has %d Clicks columns; want 3", got)
 	}
 	if strings.Contains(body, "fd7a:115c:a1e0::") {
 		t.Error("home page unexpectedly contains an IPv6 address")
 	}
 	if strings.Contains(body, `href="/.detail/app"`) {
-		t.Error("popular live Service unexpectedly links to a stored-link detail page")
+		t.Error("live Service unexpectedly links to a stored-link detail page")
 	}
 
 	r = httptest.NewRequest(http.MethodGet, "/.all", nil)
@@ -268,5 +271,33 @@ func TestDynamicLinkResolutionAndHome(t *testing.T) {
 	serveHandler().ServeHTTP(w, r)
 	if got := w.Header().Get("Location"); got != "https://manual.example/" {
 		t.Errorf("manual link did not win collision: got %q", got)
+	}
+}
+
+func TestAnnotateHomeUsageSortsEachGroupByClicks(t *testing.T) {
+	stats.mu.Lock()
+	oldClicks, oldDirty := stats.clicks, stats.dirty
+	stats.clicks = ClickStats{"alpha": 1, "zulu": 5, "svc-alpha": 2, "svc-zulu": 8, "dev-alpha": 3, "dev-zulu": 4}
+	stats.dirty = make(ClickStats)
+	stats.mu.Unlock()
+	t.Cleanup(func() {
+		stats.mu.Lock()
+		stats.clicks, stats.dirty = oldClicks, oldDirty
+		stats.mu.Unlock()
+	})
+
+	discovered := discoveredLinks{
+		Services: []discoveredLink{{Short: "svc-alpha"}, {Short: "svc-zulu"}},
+		Devices:  []discoveredLink{{Short: "dev-alpha"}, {Short: "dev-zulu"}},
+	}
+	links := annotateHomeUsage([]*Link{{Short: "alpha"}, {Short: "zulu"}}, &discovered)
+	if links[0].Short != "zulu" || links[0].NumClicks != 5 {
+		t.Errorf("first Link = %+v; want zulu with 5 clicks", links[0])
+	}
+	if discovered.Services[0].Short != "svc-zulu" || discovered.Services[0].NumClicks != 8 {
+		t.Errorf("first Service = %+v; want svc-zulu with 8 clicks", discovered.Services[0])
+	}
+	if discovered.Devices[0].Short != "dev-zulu" || discovered.Devices[0].NumClicks != 4 {
+		t.Errorf("first Device = %+v; want dev-zulu with 4 clicks", discovered.Devices[0])
 	}
 }

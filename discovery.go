@@ -101,6 +101,7 @@ type discoveredLink struct {
 	Description string
 	IPs         []string
 	Online      bool
+	NumClicks   int
 }
 
 type discoveredLinks struct {
