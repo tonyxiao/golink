@@ -116,9 +116,12 @@ var embeddedFS embed.FS
 var db *SQLiteDB
 
 var localClient *local.Client
+var discoveryClient tailscaleDiscoveryClient
+var serviceDescriptionClient tailscaleServiceDescriptionClient
 
 func Run() error {
 	flag.Parse()
+	serviceDescriptionClient = newTailscaleAPIServiceDescriptionClient(os.Getenv("TS_API_KEY"), os.Getenv("TS_TAILNET"))
 
 	hostinfo.SetApp("golink")
 
@@ -189,6 +192,10 @@ func Run() error {
 	go flushStatsLoop()
 
 	if *dev != "" {
+		// Dev mode does not start an embedded tsnet server, but it can still
+		// discover the devices and Services visible to the host's tailscaled.
+		discoveryClient = new(local.Client)
+
 		// override default hostname for dev mode
 		if *hostname == defaultHostname {
 			if h, p, err := net.SplitHostPort(*dev); err == nil {
@@ -229,6 +236,7 @@ func Run() error {
 	}
 
 	localClient, _ = srv.LocalClient()
+	discoveryClient = localClient
 out:
 	for {
 		upCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -340,7 +348,12 @@ type visitData struct {
 // the listing template (searchTmpl) served by /.all and /.search.
 type searchResult struct {
 	*Link
-	NumClicks int
+	NumClicks   int
+	Discovered  bool
+	Kind        string
+	Description string
+	IPs         []string
+	Online      bool
 }
 
 // searchResults annotates links with their current click counts (read from the
@@ -362,12 +375,26 @@ func searchResults(links []*Link) []searchResult {
 
 // homeData is the data used by homeTmpl.
 type homeData struct {
-	Short    string
-	Long     string
-	Clicks   []visitData
-	XSRF     string
-	ReadOnly bool
-	User     string
+	Short          string
+	Long           string
+	Clicks         []visitData
+	Services       []discoveredLink
+	Devices        []discoveredLink
+	DiscoveryError bool
+	XSRF           string
+	ReadOnly       bool
+	User           string
+}
+
+func liveTailscaleLinks(ctx context.Context, stored []*Link) (discoveredLinks, error) {
+	if discoveryClient == nil {
+		return discoveredLinks{}, nil
+	}
+	reserved := make(map[string]string, len(stored))
+	for _, link := range stored {
+		reserved[linkID(link.Short)] = link.Long
+	}
+	return discoverTailscaleLinksWithDescriptions(ctx, discoveryClient, serviceDescriptionClient, reserved)
 }
 
 // deleteData is the data used by deleteTmpl.
@@ -585,19 +612,12 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		clicks = clicks[:200]
 	}
 
-	var long string
-	if short != "" && localClient != nil {
-		// if a peer exists with the short name, suggest it as the long URL
-		st, err := localClient.Status(r.Context())
-		if err == nil {
-			for _, p := range st.Peer {
-				if host, _, ok := strings.Cut(p.DNSName, "."); ok && host == short {
-					long = "http://" + host + "/"
-					break
-				}
-			}
-		}
+	stored, err := db.LoadAll()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	discovered, discoveryErr := liveTailscaleLinks(r.Context(), stored)
 
 	cu, err := currentUser(r)
 	if err != nil {
@@ -605,16 +625,18 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		return
 	}
 	homeTmpl.Execute(w, homeData{
-		Short:    short,
-		Long:     long,
-		Clicks:   clicks,
-		XSRF:     xsrftoken.Generate(xsrfKey, cu.login, newShortName),
-		ReadOnly: *readonly,
-		User:     cu.login,
+		Short:          short,
+		Clicks:         clicks,
+		Services:       discovered.Services,
+		Devices:        discovered.Devices,
+		DiscoveryError: discoveryErr != nil,
+		XSRF:           xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+		ReadOnly:       *readonly,
+		User:           cu.login,
 	})
 }
 
-func serveAll(w http.ResponseWriter, _ *http.Request) {
+func serveAll(w http.ResponseWriter, r *http.Request) {
 	if err := flushStats(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -626,7 +648,19 @@ func serveAll(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	searchTmpl.Execute(w, searchResults(links))
+	results := searchResults(links)
+	if discovered, err := liveTailscaleLinks(r.Context(), links); err == nil {
+		for _, group := range [][]discoveredLink{discovered.Services, discovered.Devices} {
+			for _, link := range group {
+				results = append(results, searchResult{
+					Link: &Link{Short: link.Short, Long: link.Long}, Discovered: true,
+					Kind: link.Kind, Description: link.Description, IPs: link.IPs, Online: link.Online,
+				})
+			}
+		}
+		sort.Slice(results, func(i, j int) bool { return results[i].Short < results[j].Short })
+	}
+	searchTmpl.Execute(w, results)
 }
 
 func serveHelp(w http.ResponseWriter, _ *http.Request) {
@@ -658,12 +692,35 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	link, err := db.Load(short)
+	discovered := false
+	var liveLinks discoveredLinks
+	if errors.Is(err, fs.ErrNotExist) {
+		stored, loadErr := db.LoadAll()
+		if loadErr == nil {
+			if links, discoveryErr := liveTailscaleLinks(r.Context(), stored); discoveryErr == nil {
+				liveLinks = links
+				if live, ok := liveLinks.lookup(short); ok {
+					link = &Link{Short: live.Short, Long: live.Long}
+					err = nil
+					discovered = true
+				}
+			}
+		}
+	}
+
 	if errors.Is(err, fs.ErrNotExist) {
 		// Trim common punctuation from the end and try again.
 		// This catches auto-linking and copy/paste issues that include punctuation.
 		if s := strings.TrimRight(short, ".,()[]{}"); short != s {
 			short = s
 			link, err = db.Load(short)
+			if errors.Is(err, fs.ErrNotExist) {
+				if live, ok := liveLinks.lookup(short); ok {
+					link = &Link{Short: live.Short, Long: live.Long}
+					err = nil
+					discovered = true
+				}
+			}
 		}
 	}
 
@@ -680,18 +737,20 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clickCounter.WithLabelValues(link.Short).Inc()
+	if !discovered {
+		clickCounter.WithLabelValues(link.Short).Inc()
 
-	stats.mu.Lock()
-	if stats.clicks == nil {
-		stats.clicks = make(ClickStats)
+		stats.mu.Lock()
+		if stats.clicks == nil {
+			stats.clicks = make(ClickStats)
+		}
+		stats.clicks[link.Short]++
+		if stats.dirty == nil {
+			stats.dirty = make(ClickStats)
+		}
+		stats.dirty[link.Short]++
+		stats.mu.Unlock()
 	}
-	stats.clicks[link.Short]++
-	if stats.dirty == nil {
-		stats.dirty = make(ClickStats)
-	}
-	stats.dirty[link.Short]++
-	stats.mu.Unlock()
 
 	cu, _ := currentUser(r)
 	env := expandEnv{Now: time.Now().UTC(), Path: remainder, user: cu.login, query: r.URL.Query()}

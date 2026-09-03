@@ -30,6 +30,24 @@ To build from source and run in dev mode:
 golink will be available at http://localhost:8080/,
 storing links in a temporary database, and will not attempt to join a tailnet.
 
+### Live Tailscale discovery
+
+golink lists the devices visible in `tailscale status` and the Services visible
+in `tailscale service list` directly from the Tailscale LocalAPI. These entries
+are resolved live and are never copied into the golink database.
+
+The LocalAPI does not expose the Service comments shown as “Description” in the
+Tailscale admin console. To include those descriptions, provide a Tailscale API
+key with read access to Services:
+
+```bash
+TS_API_KEY="tskey-api-..." go run ./cmd/golink -dev-listen :8080
+```
+
+The descriptions are read live from the Tailscale control-plane API on each
+request and are not persisted. `TS_TAILNET` may optionally select a tailnet;
+when omitted, the API key's own tailnet is used.
+
 The equivalent using the pre-built docker image:
 
     docker run -it --rm -p 8080:8080 ghcr.io/tailscale/golink:main -dev-listen :8080

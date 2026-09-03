@@ -1235,6 +1235,10 @@ select {
   display: table;
 }
 
+.grid {
+  display: grid;
+}
+
 .hidden {
   display: none;
 }
@@ -1259,20 +1263,20 @@ select {
   width: 5rem;
 }
 
-.max-w-screen-lg {
-  max-width: 1024px;
-}
-
-.max-w-\[75vw\] {
-  max-width: 75vw;
-}
-
 .max-w-full {
   max-width: 100%;
 }
 
 .max-w-5xl {
   max-width: 64rem;
+}
+
+.max-w-screen-lg {
+  max-width: 1024px;
+}
+
+.max-w-\[75vw\] {
+  max-width: 75vw;
 }
 
 .flex-1 {
@@ -1295,6 +1299,10 @@ select {
   align-items: center;
 }
 
+.gap-8 {
+  gap: 2rem;
+}
+
 .overflow-auto {
   overflow: auto;
 }
@@ -1303,6 +1311,10 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.break-all {
+  word-break: break-all;
 }
 
 .rounded-md {
@@ -1350,14 +1362,14 @@ select {
   border-color: rgb(75 112 204 / var(--tw-border-opacity));
 }
 
-.border-red-500 {
-  --tw-border-opacity: 1;
-  border-color: rgb(178 45 48 / var(--tw-border-opacity));
-}
-
 .border-orange-50 {
   --tw-border-opacity: 1;
   border-color: rgb(254 227 192 / var(--tw-border-opacity));
+}
+
+.border-red-500 {
+  --tw-border-opacity: 1;
+  border-color: rgb(178 45 48 / var(--tw-border-opacity));
 }
 
 .bg-gray-100 {
@@ -1370,28 +1382,18 @@ select {
   background-color: rgb(75 112 204 / var(--tw-bg-opacity));
 }
 
-.bg-red-500 {
-  --tw-bg-opacity: 1;
-  background-color: rgb(178 45 48 / var(--tw-bg-opacity));
-}
-
 .bg-orange-0 {
   --tw-bg-opacity: 1;
   background-color: rgb(255 250 238 / var(--tw-bg-opacity));
 }
 
+.bg-red-500 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(178 45 48 / var(--tw-bg-opacity));
+}
+
 .p-2 {
   padding: 0.5rem;
-}
-
-.px-2 {
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
-}
-
-.py-2 {
-  padding-top: 0.5rem;
-  padding-bottom: 0.5rem;
 }
 
 .px-4 {
@@ -1404,21 +1406,27 @@ select {
   padding-bottom: 1rem;
 }
 
+.px-2 {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.py-2 {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
 .py-3 {
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
 }
 
-.pt-6 {
-  padding-top: 1.5rem;
+.pt-4 {
+  padding-top: 1rem;
 }
 
 .pb-2 {
   padding-bottom: 0.5rem;
-}
-
-.pt-4 {
-  padding-top: 1rem;
 }
 
 .pb-1 {
@@ -1427,6 +1435,10 @@ select {
 
 .pt-2 {
   padding-top: 0.5rem;
+}
+
+.pt-6 {
+  padding-top: 1.5rem;
 }
 
 .pr-4 {
@@ -1445,23 +1457,12 @@ select {
   text-align: end;
 }
 
+.align-top {
+  vertical-align: top;
+}
+
 .align-text-top {
   vertical-align: text-top;
-}
-
-.text-xl {
-  font-size: 1.25rem;
-  line-height: 1.75rem;
-}
-
-.text-xs {
-  font-size: 0.75rem;
-  line-height: 1rem;
-}
-
-.text-sm {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
 }
 
 .text-2xl {
@@ -1469,9 +1470,24 @@ select {
   line-height: 2rem;
 }
 
+.text-xl {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+
+.text-sm {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
 .text-lg {
   font-size: 1.125rem;
   line-height: 1.75rem;
+}
+
+.text-xs {
+  font-size: 0.75rem;
+  line-height: 1rem;
 }
 
 .font-bold {
@@ -1482,17 +1498,12 @@ select {
   text-transform: uppercase;
 }
 
-.leading-normal {
-  line-height: 1.5;
-}
-
 .leading-6 {
   line-height: 1.5rem;
 }
 
-.text-gray-500 {
-  --tw-text-opacity: 1;
-  color: rgb(112 110 109 / var(--tw-text-opacity));
+.leading-normal {
+  line-height: 1.5;
 }
 
 .text-gray-700 {
@@ -1503,6 +1514,11 @@ select {
 .text-white {
   --tw-text-opacity: 1;
   color: rgb(255 255 255 / var(--tw-text-opacity));
+}
+
+.text-gray-500 {
+  --tw-text-opacity: 1;
+  color: rgb(112 110 109 / var(--tw-text-opacity));
 }
 
 .text-blue-600 {
@@ -1535,11 +1551,6 @@ select {
   border-color: rgb(148 8 33 / var(--tw-border-opacity));
 }
 
-.hover\:bg-gray-100:hover {
-  --tw-bg-opacity: 1;
-  background-color: rgb(247 245 244 / var(--tw-bg-opacity));
-}
-
 .hover\:bg-blue-600:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(63 93 179 / var(--tw-bg-opacity));
@@ -1548,6 +1559,11 @@ select {
 .hover\:bg-red-600:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(148 8 33 / var(--tw-bg-opacity));
+}
+
+.hover\:bg-gray-100:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(247 245 244 / var(--tw-bg-opacity));
 }
 
 .hover\:fill-blue-500:hover {
@@ -1588,5 +1604,11 @@ select {
 
   .md\:max-w-\[40vw\] {
     max-width: 40vw;
+  }
+}
+
+@media (min-width: 1024px) {
+  .lg\:grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
