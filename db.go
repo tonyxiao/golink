@@ -187,6 +187,11 @@ func (s *SQLiteDB) LoadStats() (ClickStats, error) {
 			return nil, err
 		}
 		short := linkmap[id]
+		if short == "" {
+			// Stats for live-discovered links do not have a Links row. Retain
+			// their normalized ID until live discovery restores the display name.
+			short = id
+		}
 		stats[short] = clicks
 	}
 	return stats, rows.Err()

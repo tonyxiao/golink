@@ -340,8 +340,9 @@ var (
 )
 
 type visitData struct {
-	Short     string
-	NumClicks int
+	Short      string
+	NumClicks  int
+	Discovered bool
 }
 
 // searchResult is a link paired with its current click count, used to render
@@ -591,33 +592,13 @@ func serveHandler() http.Handler {
 }
 
 func serveHome(w http.ResponseWriter, r *http.Request, short string) {
-	var clicks []visitData
-
-	stats.mu.Lock()
-	for short, numClicks := range stats.clicks {
-		clicks = append(clicks, visitData{
-			Short:     short,
-			NumClicks: numClicks,
-		})
-	}
-	stats.mu.Unlock()
-
-	sort.Slice(clicks, func(i, j int) bool {
-		if clicks[i].NumClicks != clicks[j].NumClicks {
-			return clicks[i].NumClicks > clicks[j].NumClicks
-		}
-		return clicks[i].Short < clicks[j].Short
-	})
-	if len(clicks) > 200 {
-		clicks = clicks[:200]
-	}
-
 	stored, err := db.LoadAll()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	discovered, discoveryErr := liveTailscaleLinks(r.Context(), stored)
+	clicks := popularLinks(stored, discovered)
 
 	cu, err := currentUser(r)
 	if err != nil {
@@ -634,6 +615,60 @@ func serveHome(w http.ResponseWriter, r *http.Request, short string) {
 		ReadOnly:       *readonly,
 		User:           cu.login,
 	})
+}
+
+func popularLinks(stored []*Link, discovered discoveredLinks) []visitData {
+	type knownLink struct {
+		short      string
+		discovered bool
+	}
+	known := make(map[string]knownLink, len(stored)+len(discovered.Services)+len(discovered.Devices))
+	for _, link := range stored {
+		known[linkID(link.Short)] = knownLink{short: link.Short}
+	}
+	for _, group := range [][]discoveredLink{discovered.Services, discovered.Devices} {
+		for _, link := range group {
+			id := linkID(link.Short)
+			if _, exists := known[id]; !exists {
+				known[id] = knownLink{short: link.Short, discovered: true}
+			}
+		}
+	}
+
+	stats.mu.Lock()
+	canonicalize := func(counts ClickStats) ClickStats {
+		result := make(ClickStats, len(counts))
+		for short, count := range counts {
+			link, ok := known[linkID(short)]
+			if ok {
+				short = link.short
+			}
+			result[short] += count
+		}
+		return result
+	}
+	stats.clicks = canonicalize(stats.clicks)
+	stats.dirty = canonicalize(stats.dirty)
+	clicks := make([]visitData, 0, len(stats.clicks))
+	for short, numClicks := range stats.clicks {
+		link, ok := known[linkID(short)]
+		if !ok {
+			continue
+		}
+		clicks = append(clicks, visitData{Short: link.short, NumClicks: numClicks, Discovered: link.discovered})
+	}
+	stats.mu.Unlock()
+
+	sort.Slice(clicks, func(i, j int) bool {
+		if clicks[i].NumClicks != clicks[j].NumClicks {
+			return clicks[i].NumClicks > clicks[j].NumClicks
+		}
+		return clicks[i].Short < clicks[j].Short
+	})
+	if len(clicks) > 200 {
+		clicks = clicks[:200]
+	}
+	return clicks
 }
 
 func serveAll(w http.ResponseWriter, r *http.Request) {
@@ -692,7 +727,6 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	link, err := db.Load(short)
-	discovered := false
 	var liveLinks discoveredLinks
 	if errors.Is(err, fs.ErrNotExist) {
 		stored, loadErr := db.LoadAll()
@@ -702,7 +736,6 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 				if live, ok := liveLinks.lookup(short); ok {
 					link = &Link{Short: live.Short, Long: live.Long}
 					err = nil
-					discovered = true
 				}
 			}
 		}
@@ -718,7 +751,6 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 				if live, ok := liveLinks.lookup(short); ok {
 					link = &Link{Short: live.Short, Long: live.Long}
 					err = nil
-					discovered = true
 				}
 			}
 		}
@@ -737,20 +769,18 @@ func serveGo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !discovered {
-		clickCounter.WithLabelValues(link.Short).Inc()
+	clickCounter.WithLabelValues(link.Short).Inc()
 
-		stats.mu.Lock()
-		if stats.clicks == nil {
-			stats.clicks = make(ClickStats)
-		}
-		stats.clicks[link.Short]++
-		if stats.dirty == nil {
-			stats.dirty = make(ClickStats)
-		}
-		stats.dirty[link.Short]++
-		stats.mu.Unlock()
+	stats.mu.Lock()
+	if stats.clicks == nil {
+		stats.clicks = make(ClickStats)
 	}
+	stats.clicks[link.Short]++
+	if stats.dirty == nil {
+		stats.dirty = make(ClickStats)
+	}
+	stats.dirty[link.Short]++
+	stats.mu.Unlock()
 
 	cu, _ := currentUser(r)
 	env := expandEnv{Now: time.Now().UTC(), Path: remainder, user: cu.login, query: r.URL.Query()}

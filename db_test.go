@@ -84,16 +84,19 @@ func Test_SQLiteDB_SaveLoadDeleteStats(t *testing.T) {
 	}
 
 	// Stats to record and then retrieve.
-	// Stats to store do not need to be their canonical short name,
-	// but returned stats always should be.
+	// Stats to store do not need to be their canonical short name. Stored
+	// links return that canonical name; live-only links retain a normalized ID
+	// until discovery restores their display name.
 	stats := []ClickStats{
 		{"a": 1},
 		{"b-c": 1},
 		{"a": 1, "bc": 2},
+		{"live-link": 4},
 	}
 	want := ClickStats{
-		"a":   2,
-		"B-c": 3,
+		"a":        2,
+		"B-c":      3,
+		"livelink": 4,
 	}
 
 	for _, s := range stats {

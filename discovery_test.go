@@ -211,9 +211,20 @@ func TestDynamicLinkResolutionAndHome(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/app/path?q=1", nil)
 	w := httptest.NewRecorder()
+	stats.mu.Lock()
+	clicksBefore := stats.clicks["app"]
+	dirtyBefore := stats.dirty["app"]
+	stats.mu.Unlock()
 	serveHandler().ServeHTTP(w, r)
 	if w.Code != http.StatusFound || w.Header().Get("Location") != "https://app.example.ts.net/path?q=1" {
 		t.Fatalf("dynamic redirect = (%d, %q)", w.Code, w.Header().Get("Location"))
+	}
+	stats.mu.Lock()
+	clicksAfter := stats.clicks["app"]
+	dirtyAfter := stats.dirty["app"]
+	stats.mu.Unlock()
+	if clicksAfter != clicksBefore+1 || dirtyAfter != dirtyBefore+1 {
+		t.Errorf("dynamic click counts = (%d total, %d dirty); want (%d, %d)", clicksAfter, dirtyAfter, clicksBefore+1, dirtyBefore+1)
 	}
 	if _, err := db.Load("app"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("dynamic link was persisted: Load(app) returned %v", err)
@@ -230,6 +241,9 @@ func TestDynamicLinkResolutionAndHome(t *testing.T) {
 	}
 	if strings.Contains(body, "fd7a:115c:a1e0::") {
 		t.Error("home page unexpectedly contains an IPv6 address")
+	}
+	if strings.Contains(body, `href="/.detail/app"`) {
+		t.Error("popular live Service unexpectedly links to a stored-link detail page")
 	}
 
 	if err := db.Save(&Link{Short: "app", Long: "https://manual.example/"}); err != nil {
