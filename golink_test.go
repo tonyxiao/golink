@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -314,6 +315,133 @@ func TestServeSave(t *testing.T) {
 	}
 }
 
+func TestDescriptionCRUD(t *testing.T) {
+	var err error
+	db, err = NewSQLiteDB(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initStats()
+	oldDiscoveryClient := discoveryClient
+	discoveryClient = nil
+	t.Cleanup(func() { discoveryClient = oldDiscoveryClient })
+
+	requestSave := func(description *string) *httptest.ResponseRecorder {
+		t.Helper()
+		form := url.Values{
+			"short": {"bws"},
+			"long":  {"https://bitwarden.com/help/secrets-manager/"},
+		}
+		if description != nil {
+			form.Set("description", *description)
+		}
+		r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set(secHeaderName, "1")
+		w := httptest.NewRecorder()
+		serveSave(w, r)
+		return w
+	}
+
+	const createdDescription = "Bitwarden Secrets Manager"
+	w := requestSave(ptr.To(createdDescription))
+	if w.Code != http.StatusOK {
+		t.Fatalf("create status = %d; want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	created, err := db.Load("bws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Description != createdDescription {
+		t.Fatalf("created description = %q; want %q", created.Description, createdDescription)
+	}
+	w = requestSave(nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("legacy update status = %d; want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	preserved, err := db.Load("bws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preserved.Description != createdDescription {
+		t.Fatalf("description after legacy update = %q; want %q", preserved.Description, createdDescription)
+	}
+
+	r := httptest.NewRequest("GET", "/.detail/bws", nil)
+	r.Header.Set("Accept", "application/json")
+	w = httptest.NewRecorder()
+	serveDetail(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("read status = %d; want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	var read Link
+	if err := json.NewDecoder(w.Body).Decode(&read); err != nil {
+		t.Fatal(err)
+	}
+	if read.Description != createdDescription {
+		t.Fatalf("read description = %q; want %q", read.Description, createdDescription)
+	}
+
+	const updatedDescription = "Bitwarden machine-account secrets manager"
+	w = requestSave(ptr.To(updatedDescription))
+	if w.Code != http.StatusOK {
+		t.Fatalf("update status = %d; want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	updated, err := db.Load("bws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Description != updatedDescription {
+		t.Fatalf("updated description = %q; want %q", updated.Description, updatedDescription)
+	}
+	for name, serve := range map[string]func(http.ResponseWriter, *http.Request){
+		"home": func(w http.ResponseWriter, r *http.Request) { serveHome(w, r, "") },
+		"all":  serveAll,
+	} {
+		r = httptest.NewRequest("GET", "/", nil)
+		w = httptest.NewRecorder()
+		serve(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("%s listing status = %d; want %d", name, w.Code, http.StatusOK)
+		}
+		if !strings.Contains(w.Body.String(), updatedDescription) {
+			t.Errorf("%s listing does not contain description: %s", name, w.Body.String())
+		}
+	}
+
+	w = requestSave(ptr.To(""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("clear status = %d; want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	cleared, err := db.Load("bws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Description != "" {
+		t.Fatalf("cleared description = %q; want empty", cleared.Description)
+	}
+	w = requestSave(ptr.To(updatedDescription))
+	if w.Code != http.StatusOK {
+		t.Fatalf("restore description status = %d; want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	r = httptest.NewRequest("POST", "/.delete/bws", strings.NewReader(url.Values{
+		"xsrf": {xsrftoken.Generate(xsrfKey, "foo@example.com", "bws")},
+	}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w = httptest.NewRecorder()
+	serveDelete(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("delete status = %d; want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), updatedDescription) {
+		t.Errorf("delete response does not preserve description for recreation: %s", w.Body.String())
+	}
+	if _, err := db.Load("bws"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("load after delete error = %v; want fs.ErrNotExist", err)
+	}
+}
+
 func TestServeDelete(t *testing.T) {
 	var err error
 	db, err = NewSQLiteDB(":memory:")
@@ -413,7 +541,7 @@ func TestServeExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Save(&Link{Short: "a", Owner: "a@example.com"})
-	db.Save(&Link{Short: "foo", Owner: "foo@example.com"})
+	db.Save(&Link{Short: "foo", Description: "Foo link", Owner: "foo@example.com"})
 	db.Save(&Link{Short: "link-owned-by-tagged-devices", Long: "/before", Owner: "tagged-devices"})
 
 	click := func(id string) {
@@ -437,9 +565,9 @@ func TestServeExport(t *testing.T) {
 	if want := http.StatusOK; w.Code != want {
 		t.Errorf("serveExport = %d; want %d", w.Code, want)
 	}
-	wantOutput := `{"Short":"a","Long":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"a@example.com"}
-{"Short":"foo","Long":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"foo@example.com"}
-{"Short":"link-owned-by-tagged-devices","Long":"/before","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"tagged-devices"}
+	wantOutput := `{"Short":"a","Long":"","Description":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"a@example.com"}
+{"Short":"foo","Long":"","Description":"Foo link","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"foo@example.com"}
+{"Short":"link-owned-by-tagged-devices","Long":"/before","Description":"","Created":"0001-01-01T00:00:00Z","LastEdit":"0001-01-01T00:00:00Z","Owner":"tagged-devices"}
 `
 	if got := w.Body.String(); got != wantOutput {
 		t.Errorf("serveExport = %v; want %v", got, wantOutput)

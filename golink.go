@@ -340,20 +340,20 @@ var (
 )
 
 type visitData struct {
-	Short     string
-	NumClicks int
+	Short       string
+	Description string
+	NumClicks   int
 }
 
 // searchResult is a link paired with its current click count, used to render
 // the listing template (searchTmpl) served by /.all and /.search.
 type searchResult struct {
 	*Link
-	NumClicks   int
-	Discovered  bool
-	Kind        string
-	Description string
-	IPs         []string
-	Online      bool
+	NumClicks  int
+	Discovered bool
+	Kind       string
+	IPs        []string
+	Online     bool
 }
 
 type searchGroup struct {
@@ -397,8 +397,8 @@ func discoveredSearchResults(links []discoveredLink, counts map[string]int) []se
 	results := make([]searchResult, len(links))
 	for i, link := range links {
 		results[i] = searchResult{
-			Link: &Link{Short: link.Short, Long: link.Long}, NumClicks: counts[linkID(link.Short)],
-			Discovered: true, Kind: link.Kind, Description: link.Description, IPs: link.IPs, Online: link.Online,
+			Link: &Link{Short: link.Short, Long: link.Long, Description: link.Description}, NumClicks: counts[linkID(link.Short)],
+			Discovered: true, Kind: link.Kind, IPs: link.IPs, Online: link.Online,
 		}
 	}
 	return results
@@ -430,9 +430,10 @@ func liveTailscaleLinks(ctx context.Context, stored []*Link) (discoveredLinks, e
 
 // deleteData is the data used by deleteTmpl.
 type deleteData struct {
-	Short string
-	Long  string
-	XSRF  string
+	Short       string
+	Long        string
+	Description string
+	XSRF        string
 }
 
 var xsrfKey string
@@ -686,7 +687,7 @@ func annotateHomeUsage(stored []*Link, discovered *discoveredLinks) []visitData 
 
 	links := make([]visitData, len(stored))
 	for i, link := range stored {
-		links[i] = visitData{Short: link.Short, NumClicks: counts[linkID(link.Short)]}
+		links[i] = visitData{Short: link.Short, Description: link.Description, NumClicks: counts[linkID(link.Short)]}
 	}
 	lessUsage := func(a, b discoveredLink) bool {
 		if a.NumClicks != b.NumClicks {
@@ -1193,9 +1194,10 @@ func serveDelete(w http.ResponseWriter, r *http.Request) {
 	deleteLinkStats(link)
 
 	deleteTmpl.Execute(w, deleteData{
-		Short: link.Short,
-		Long:  link.Long,
-		XSRF:  xsrftoken.Generate(xsrfKey, cu.login, newShortName),
+		Short:       link.Short,
+		Long:        link.Long,
+		Description: link.Description,
+		XSRF:        xsrftoken.Generate(xsrfKey, cu.login, newShortName),
 	})
 }
 
@@ -1208,6 +1210,8 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	short, long := r.FormValue("short"), r.FormValue("long")
+	description := r.FormValue("description")
+	_, descriptionProvided := r.Form["description"]
 	if short == "" || long == "" {
 		http.Error(w, "short and long required", http.StatusBadRequest)
 		return
@@ -1287,6 +1291,9 @@ func serveSave(w http.ResponseWriter, r *http.Request) {
 	}
 	link.Short = short
 	link.Long = long
+	if descriptionProvided {
+		link.Description = description
+	}
 	link.LastEdit = now
 	link.Owner = owner
 	if err := db.Save(link); err != nil {

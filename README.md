@@ -46,8 +46,9 @@ key with read access to Services:
 TS_API_KEY="tskey-api-..." go run ./cmd/golink -dev-listen :8080
 ```
 
-The descriptions are read live from the Tailscale control-plane API on each
-request and are not persisted. `TS_TAILNET` may optionally select a tailnet;
+These Service descriptions are read live from the Tailscale control-plane API
+on each request and are not persisted. Descriptions on stored golinks are kept
+in SQLite with the rest of the link. `TS_TAILNET` may optionally select a tailnet;
 when omitted, the API key's own tailnet is used.
 
 The equivalent using the pre-built docker image:

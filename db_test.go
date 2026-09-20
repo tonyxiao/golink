@@ -4,6 +4,7 @@
 package golink
 
 import (
+	"database/sql"
 	"path"
 	"testing"
 
@@ -19,7 +20,7 @@ func Test_SQLiteDB_SaveLoadDeleteLinks(t *testing.T) {
 	}
 
 	links := []*Link{
-		{Short: "short", Long: "long"},
+		{Short: "bws", Long: "https://bitwarden.com/help/secrets-manager/", Description: "Bitwarden Secrets Manager"},
 		{Short: "Foo.Bar", Long: "long"},
 	}
 
@@ -62,6 +63,50 @@ func Test_SQLiteDB_SaveLoadDeleteLinks(t *testing.T) {
 	want := []*Link(nil)
 	if !cmp.Equal(got, want) {
 		t.Errorf("db.LoadAll got %v, want %v", got, want)
+	}
+}
+
+func TestSQLiteDBMigratesDescription(t *testing.T) {
+	dbPath := path.Join(t.TempDir(), "links.db")
+	legacyDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacyDB.Exec(`CREATE TABLE Links (
+		ID TEXT PRIMARY KEY, Short TEXT NOT NULL DEFAULT "", Long TEXT NOT NULL DEFAULT "",
+		Created INTEGER NOT NULL DEFAULT 0, LastEdit INTEGER NOT NULL DEFAULT 0,
+		Owner TEXT NOT NULL DEFAULT ""
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacyDB.Exec(`INSERT INTO Links (ID, Short, Long) VALUES ("bws", "bws", "https://bitwarden.com/")`); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := NewSQLiteDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, err := db.Load("bws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if link.Description != "" {
+		t.Fatalf("migrated description = %q; want empty", link.Description)
+	}
+	link.Description = "Bitwarden Secrets Manager"
+	if err := db.Save(link); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.Load("bws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Description != link.Description {
+		t.Fatalf("description after migration = %q; want %q", got.Description, link.Description)
 	}
 }
 

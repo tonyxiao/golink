@@ -19,6 +19,9 @@
         <input name=long required type=text size=40 placeholder="https://destination-url" value="{{.Link.Long}}" class="p-2 my-2 mr-2 max-w-full rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
       </div>
 
+      <label for=description class="text-sm font-bold block mt-4">Description</label>
+      <input id=description name=description type=text size=60 placeholder="Description (optional)" value="{{.Link.Description}}" class="p-2 w-full max-w-screen-sm rounded-md border-gray-300 placeholder:text-gray-400 disabled:bg-gray-100">
+
       <p class="text-sm text-gray-500"><a class="text-blue-600 hover:underline" href="/.help">Help and advanced options</a></p>
 
       <label for=owner class="text-sm font-bold block mt-4">Owner</label>
@@ -52,6 +55,11 @@
 
       <dt class="text-sm font-bold mt-6">Owner</dt>
       <dd>{{.Link.Owner}}</dd>
+
+      {{with .Link.Description}}
+      <dt class="text-sm font-bold mt-6">Description</dt>
+      <dd>{{.}}</dd>
+      {{end}}
 
       <dt class="text-sm font-bold mt-6">Date Created</dt>
       <dd>{{.Link.Created.Format "Jan _2, 2006 3:04pm MST"}}</dd>
