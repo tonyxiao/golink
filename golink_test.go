@@ -1232,3 +1232,46 @@ func TestExtractUserFromHeaders(t *testing.T) {
 		})
 	}
 }
+
+func TestServicePublicHostname(t *testing.T) {
+	tstest.Replace(t, hostname, "cs-mini-golink")
+	tstest.Replace(t, serviceName, "svc:go")
+	if got := publicHostname(); got != "go" {
+		t.Fatalf("public hostname = %q, want go", got)
+	}
+	tstest.Replace(t, serviceName, "")
+	if got := publicHostname(); got != "cs-mini-golink" {
+		t.Fatalf("direct hostname = %q", got)
+	}
+}
+
+func TestServiceTaggedCallerIdentity(t *testing.T) {
+	for _, tt := range []struct{ name, service, remote, forwarded, wantLookup string }{
+		{"trusted IPv4 proxy", "svc:go", "127.0.0.1:1234", "100.89.251.15", "100.89.251.15"},
+		{"trusted IPv6 proxy", "svc:go", "[::1]:1234", "fd7a:115c:a1e0::1234", "fd7a:115c:a1e0::1234"},
+		{"untrusted direct peer", "svc:go", "100.64.1.2:443", "100.89.251.15", "100.64.1.2:443"},
+		{"no service proxy", "", "127.0.0.1:1234", "100.89.251.15", "127.0.0.1:1234"},
+		{"invalid forwarded chain", "svc:go", "127.0.0.1:1234", "100.89.251.15, 100.64.1.2", "127.0.0.1:1234"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tstest.Replace(t, serviceName, tt.service)
+			tstest.Replace(t, dev, "")
+			tstest.Replace(t, &whoisFunc, func(_ context.Context, addr string) (*apitype.WhoIsResponse, error) {
+				if addr != tt.wantLookup {
+					t.Fatalf("WhoIs target = %q, want %q", addr, tt.wantLookup)
+				}
+				return &apitype.WhoIsResponse{Node: &tailcfg.Node{Tags: []string{"tag:service-host"}}}, nil
+			})
+			r := httptest.NewRequest("GET", "/", nil)
+			r.RemoteAddr = tt.remote
+			r.Header.Set("X-Forwarded-For", tt.forwarded)
+			got, err := currentUser(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.login != "tagged-devices" || got.isAdmin {
+				t.Fatalf("identity = %+v, want non-admin tagged-devices", got)
+			}
+		})
+	}
+}

@@ -462,8 +462,16 @@ var tmplFuncs = template.FuncMap{
 			// in dev mode, just use "go" instead of "localhost:8080"
 			return defaultHostname
 		}
-		return *hostname
+		return publicHostname()
 	},
+}
+
+// publicHostname keeps application links independent of the transport node name.
+func publicHostname() string {
+	if *serviceName != "" {
+		return strings.TrimPrefix(*serviceName, "svc:")
+	}
+	return *hostname
 }
 
 // newTemplate creates a new template with the specified files in the tmpl directory.
@@ -1033,6 +1041,8 @@ var currentUser = func(r *http.Request) (user, error) {
 		return user{login: "foo@example.com"}, nil
 	}
 
+	remoteAddr := r.RemoteAddr
+
 	// When running as a Tailscale Service, identity headers are automatically injected
 	// by tsnet's internal proxy. Restrict this authentication check to cases
 	// when we are running in service mode, and the immediate client connection is
@@ -1042,10 +1052,16 @@ var currentUser = func(r *http.Request) (user, error) {
 		if headerUser.login != "" {
 			return headerUser, nil
 		}
+		// Serve omits user identity headers for tagged callers. Its trusted
+		// loopback proxy still supplies the original address for WhoIs.
+		if ip := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Forwarded-For"))); ip != nil {
+			remoteAddr = ip.String()
+		}
 	}
 
-	// Regular mode: use WhoIs with RemoteAddr
-	whois, err := localClient.WhoIs(r.Context(), r.RemoteAddr)
+	// Direct connections use their remote address; service connections can use
+	// the original address supplied by the trusted local Serve proxy.
+	whois, err := whoisFunc(r.Context(), remoteAddr)
 	if err != nil {
 		if *allowUnknownUsers {
 			// Don't report the error if we are allowing unknown users.
@@ -1053,7 +1069,13 @@ var currentUser = func(r *http.Request) (user, error) {
 		}
 		return user{}, err
 	}
-	login := whois.UserProfile.LoginName
+	login := "tagged-devices"
+	if whois.Node == nil || len(whois.Node.Tags) == 0 {
+		if whois.UserProfile == nil || whois.UserProfile.LoginName == "" {
+			return user{}, errors.New("request has no Tailscale user or tagged node identity")
+		}
+		login = whois.UserProfile.LoginName
+	}
 	caps, _ := tailcfg.UnmarshalCapJSON[capabilities](whois.CapMap, peerCapName)
 	for _, cap := range caps {
 		if cap.Admin {
@@ -1432,7 +1454,7 @@ func resolveLink(link *url.URL) (*url.URL, error) {
 	// if link was specified as "go/name", it will parse with no scheme or host.
 	// Trim "go" prefix from beginning of path.
 	if link.Host == "" {
-		path = strings.TrimPrefix(path, *hostname)
+		path = strings.TrimPrefix(path, publicHostname())
 	}
 
 	short, remainder, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
@@ -1442,7 +1464,7 @@ func resolveLink(link *url.URL) (*url.URL, error) {
 	}
 	dst, err := expandLink(l.Long, expandEnv{Now: time.Now().UTC(), Path: remainder})
 	if err == nil {
-		if dst.Host == "" || dst.Host == *hostname {
+		if dst.Host == "" || dst.Host == publicHostname() {
 			dst, err = resolveLink(dst)
 		}
 	}
