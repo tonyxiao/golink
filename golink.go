@@ -276,8 +276,20 @@ out:
 			return fmt.Errorf("failed to register service: %w", err)
 		}
 
+		// Keep bare go/... URLs working by redirecting the Service HTTP port.
+		httpListener, err := srv.ListenService(*serviceName, tsnet.ServiceModeHTTP{Port: 80})
+		if err != nil {
+			serviceListener.Close()
+			return fmt.Errorf("registering Service HTTP redirect: %w", err)
+		}
+		go func() {
+			if err := http.Serve(httpListener, redirectHandler(serviceListener.FQDN)); err != nil {
+				log.Printf("Service HTTP redirect stopped: %v", err)
+			}
+		}()
+
 		httpsHandler := HSTS(httpHandler)
-		log.Printf("Serving https://%s/ as service %s ...", fqdn, *serviceName)
+		log.Printf("Serving https://%s/ as service %s ...", serviceListener.FQDN, *serviceName)
 		return http.Serve(serviceListener, httpsHandler)
 	}
 
